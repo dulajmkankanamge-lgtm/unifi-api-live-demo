@@ -1,74 +1,70 @@
 <!doctype html>
-<html lang="en">
+<html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>UniFi API Live Demo (GitHub Pages)</title>
+  <title>UniFi - All Clients Across Sites</title>
   <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 24px; max-width: 980px; }
-    .row { display: flex; gap: 12px; flex-wrap: wrap; }
-    input, select, button { padding: 10px; font-size: 14px; }
-    input { flex: 1; min-width: 320px; }
-    button { cursor: pointer; }
-    pre { background: #0b1020; color: #e6e6e6; padding: 14px; border-radius: 10px; overflow: auto; }
-    .hint { color: #444; margin-top: 8px; }
+    body { font-family: system-ui, Arial; margin: 24px; max-width: 1100px; }
+    input, button { padding: 10px; font-size: 14px; }
+    input { width: 520px; max-width: 100%; }
+    button { cursor: pointer; margin-left: 8px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+    th, td { border: 1px solid #ddd; padding: 8px; font-size: 13px; }
+    th { background: #f6f6f6; text-align: left; }
+    .muted { color: #555; }
+    .err { color: #b00020; font-weight: 600; }
     .ok { color: #0a7a2f; font-weight: 600; }
-    .bad { color: #b00020; font-weight: 600; }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; margin-top: 14px; }
+    pre { background: #0b1020; color: #e6e6e6; padding: 12px; border-radius: 10px; overflow:auto; }
   </style>
 </head>
 <body>
-  <h1>UniFi Site Manager API – Live Demo</h1>
+  <h1>UniFi API Demo: All Connected Clients (All Sites)</h1>
 
-  <div class="card">
-    <p class="hint">
-      Paste your <b>UniFi Site Manager API key</b> (Settings → API Keys). For teaching, use a read-only key if available.
-    </p>
+  <p class="muted">
+    Paste your <b>X-API-Key</b>. This stays only in your browser.
+  </p>
 
-    <div class="row">
-      <input id="apiKey" placeholder="Paste X-API-KEY here (it stays only in your browser)" />
-      <select id="endpoint">
-        <option value="sites">List Sites</option>
-        <option value="devices">List Devices (requires siteId)</option>
-      </select>
-      <button onclick="run()">Run</button>
-    </div>
-
-    <div class="row" style="margin-top:10px;">
-      <input id="siteId" placeholder="siteId (only needed for List Devices)" />
-      <button onclick="clearOutput()">Clear</button>
-    </div>
-
-    <p id="status" class="hint"></p>
+  <div>
+    <input id="apiKey" placeholder="Paste X-API-Key here" />
+    <button onclick="loadAllClients()">Load Clients</button>
+    <button onclick="clearAll()">Clear</button>
   </div>
 
-  <div class="card">
-    <h3>Output</h3>
-    <pre id="out">{}</pre>
-  </div>
+  <p id="status" class="muted"></p>
+
+  <div id="results"></div>
+
+  <h3>Raw Debug Output</h3>
+  <pre id="debug">{}</pre>
 
 <script>
-  // Change these if UniFi uses different base URLs in your docs
-  const BASE_SITE_MANAGER = "https://api.ui.com/site-manager/v1";
+  // BASE shown in your screenshot examples: https://api.ui.com/v1/...
+  const BASE = "https://api.ui.com/v1";
+
+  const statusEl = document.getElementById("status");
+  const resultsEl = document.getElementById("results");
+  const debugEl = document.getElementById("debug");
 
   function setStatus(msg, good=true) {
-    const el = document.getElementById("status");
-    el.textContent = msg;
-    el.className = good ? "ok" : "bad";
+    statusEl.textContent = msg;
+    statusEl.className = good ? "ok" : "err";
   }
 
-  function clearOutput() {
-    document.getElementById("out").textContent = "{}";
-    setStatus("");
+  function clearAll() {
+    resultsEl.innerHTML = "";
+    debugEl.textContent = "{}";
+    statusEl.textContent = "";
+    statusEl.className = "muted";
   }
 
-  async function callApi(path, apiKey) {
-    const url = `${BASE_SITE_MANAGER}${path}`;
+  async function apiGet(path, apiKey) {
+    const url = `${BASE}${path}`;
     const res = await fetch(url, {
       method: "GET",
       headers: {
-        "X-API-KEY": apiKey,
-        "Accept": "application/json"
+        "Accept": "application/json",
+        "X-API-Key": apiKey
       }
     });
 
@@ -77,52 +73,127 @@
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
     if (!res.ok) {
-      const err = {
+      throw {
+        url,
         httpStatus: res.status,
         httpStatusText: res.statusText,
-        url,
         response: data
       };
-      throw err;
     }
     return data;
   }
 
-  async function run() {
-    const apiKey = document.getElementById("apiKey").value.trim();
-    const endpoint = document.getElementById("endpoint").value;
-    const siteId = document.getElementById("siteId").value.trim();
+  // 1) Get all sites
+  // NOTE: endpoint name can vary by API product. Try /sites first.
+  async function listSites(apiKey) {
+    // Common patterns: /sites or /site-manager/v1/sites
+    // Based on your screenshot, you're using /v1/... so we try /sites here.
+    return await apiGet("/sites", apiKey);
+  }
 
+  // 2) For each site, get connected clients
+  async function listClients(apiKey, siteId, offset=0, limit=200) {
+    const qp = `?offset=${offset}&limit=${limit}`;
+    return await apiGet(`/sites/${encodeURIComponent(siteId)}/clients${qp}`, apiKey);
+  }
+
+  function renderTable(rows) {
+    if (!rows.length) {
+      resultsEl.innerHTML = "<p>No clients returned.</p>";
+      return;
+    }
+
+    const html = `
+      <table>
+        <thead>
+          <tr>
+            <th>Site</th>
+            <th>Client Name</th>
+            <th>IP</th>
+            <th>Type</th>
+            <th>Connected At</th>
+            <th>ID</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.siteName || r.siteId)}</td>
+              <td>${escapeHtml(r.name || "")}</td>
+              <td>${escapeHtml(r.ipAddress || "")}</td>
+              <td>${escapeHtml(r.type || "")}</td>
+              <td>${escapeHtml(r.connectedAt || "")}</td>
+              <td>${escapeHtml(r.id || "")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+    resultsEl.innerHTML = html;
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  async function loadAllClients() {
+    clearAll();
+
+    const apiKey = document.getElementById("apiKey").value.trim();
     if (!apiKey) {
-      setStatus("Please paste your API key.", false);
+      setStatus("Paste your X-API-Key first.", false);
       return;
     }
 
     try {
-      setStatus("Calling UniFi API...");
-      let data;
+      setStatus("Fetching sites...");
 
-      if (endpoint === "sites") {
-        data = await callApi("/sites", apiKey);
-      } else if (endpoint === "devices") {
-        if (!siteId) {
-          setStatus("Please enter a siteId for devices.", false);
-          return;
-        }
-        // Adjust path to match your UniFi docs if different
-        data = await callApi(`/sites/${encodeURIComponent(siteId)}/devices`, apiKey);
+      const sitesResp = await listSites(apiKey);
+      debugEl.textContent = JSON.stringify({ step: "sites", sitesResp }, null, 2);
+
+      // Expecting something like { data: [ { id, name } ] } or [ ... ]
+      const sites = Array.isArray(sitesResp) ? sitesResp : (sitesResp.data || []);
+
+      if (!sites.length) {
+        setStatus("No sites found (or endpoint differs). Check Raw Debug Output.", false);
+        return;
       }
 
-      document.getElementById("out").textContent = JSON.stringify(data, null, 2);
-      setStatus("Success ✅");
-    } catch (e) {
-      document.getElementById("out").textContent = JSON.stringify(e, null, 2);
+      setStatus(`Found ${sites.length} site(s). Fetching clients...`);
 
-      // Typical CORS failure: "TypeError: Failed to fetch" (browser blocks it)
+      const all = [];
+      for (const s of sites) {
+        const siteId = s.id || s.siteId || s._id;
+        const siteName = s.name || s.siteName || siteId;
+
+        if (!siteId) continue;
+
+        // one page fetch (usually enough for demos)
+        const clientsResp = await listClients(apiKey, siteId, 0, 200);
+
+        const clients = Array.isArray(clientsResp) ? clientsResp : (clientsResp.data || []);
+        for (const c of clients) {
+          all.push({ siteId, siteName, ...c });
+        }
+      }
+
+      debugEl.textContent = JSON.stringify({ step: "done", totalClients: all.length, sample: all.slice(0, 5) }, null, 2);
+      setStatus(`Done ✅ Total clients: ${all.length}`);
+      renderTable(all);
+
+    } catch (e) {
+      debugEl.textContent = JSON.stringify(e, null, 2);
+
+      // Common browser/CORS failure
       if (String(e).includes("Failed to fetch")) {
-        setStatus("Fetch failed (possible CORS block). Use the free proxy option in Part B below.", false);
+        setStatus("Browser blocked the API call (CORS). Use the free proxy method (Part B) below.", false);
       } else {
-        setStatus("Request failed. Check output for details.", false);
+        setStatus("Request failed. Check Raw Debug Output.", false);
       }
     }
   }
