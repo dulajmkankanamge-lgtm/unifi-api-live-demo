@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>UniFi API Live Demo (GitHub Pages)</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; max-width: 980px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    input, select, button { padding: 10px; font-size: 14px; }
+    input { flex: 1; min-width: 320px; }
+    button { cursor: pointer; }
+    pre { background: #0b1020; color: #e6e6e6; padding: 14px; border-radius: 10px; overflow: auto; }
+    .hint { color: #444; margin-top: 8px; }
+    .ok { color: #0a7a2f; font-weight: 600; }
+    .bad { color: #b00020; font-weight: 600; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <h1>UniFi Site Manager API – Live Demo</h1>
+
+  <div class="card">
+    <p class="hint">
+      Paste your <b>UniFi Site Manager API key</b> (Settings → API Keys). For teaching, use a read-only key if available.
+    </p>
+
+    <div class="row">
+      <input id="apiKey" placeholder="Paste X-API-KEY here (it stays only in your browser)" />
+      <select id="endpoint">
+        <option value="sites">List Sites</option>
+        <option value="devices">List Devices (requires siteId)</option>
+      </select>
+      <button onclick="run()">Run</button>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <input id="siteId" placeholder="siteId (only needed for List Devices)" />
+      <button onclick="clearOutput()">Clear</button>
+    </div>
+
+    <p id="status" class="hint"></p>
+  </div>
+
+  <div class="card">
+    <h3>Output</h3>
+    <pre id="out">{}</pre>
+  </div>
+
+<script>
+  // Change these if UniFi uses different base URLs in your docs
+  const BASE_SITE_MANAGER = "https://api.ui.com/site-manager/v1";
+
+  function setStatus(msg, good=true) {
+    const el = document.getElementById("status");
+    el.textContent = msg;
+    el.className = good ? "ok" : "bad";
+  }
+
+  function clearOutput() {
+    document.getElementById("out").textContent = "{}";
+    setStatus("");
+  }
+
+  async function callApi(path, apiKey) {
+    const url = `${BASE_SITE_MANAGER}${path}`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "X-API-KEY": apiKey,
+        "Accept": "application/json"
+      }
+    });
+
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+    if (!res.ok) {
+      const err = {
+        httpStatus: res.status,
+        httpStatusText: res.statusText,
+        url,
+        response: data
+      };
+      throw err;
+    }
+    return data;
+  }
+
+  async function run() {
+    const apiKey = document.getElementById("apiKey").value.trim();
+    const endpoint = document.getElementById("endpoint").value;
+    const siteId = document.getElementById("siteId").value.trim();
+
+    if (!apiKey) {
+      setStatus("Please paste your API key.", false);
+      return;
+    }
+
+    try {
+      setStatus("Calling UniFi API...");
+      let data;
+
+      if (endpoint === "sites") {
+        data = await callApi("/sites", apiKey);
+      } else if (endpoint === "devices") {
+        if (!siteId) {
+          setStatus("Please enter a siteId for devices.", false);
+          return;
+        }
+        // Adjust path to match your UniFi docs if different
+        data = await callApi(`/sites/${encodeURIComponent(siteId)}/devices`, apiKey);
+      }
+
+      document.getElementById("out").textContent = JSON.stringify(data, null, 2);
+      setStatus("Success ✅");
+    } catch (e) {
+      document.getElementById("out").textContent = JSON.stringify(e, null, 2);
+
+      // Typical CORS failure: "TypeError: Failed to fetch" (browser blocks it)
+      if (String(e).includes("Failed to fetch")) {
+        setStatus("Fetch failed (possible CORS block). Use the free proxy option in Part B below.", false);
+      } else {
+        setStatus("Request failed. Check output for details.", false);
+      }
+    }
+  }
+</script>
+</body>
+</html>
